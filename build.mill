@@ -18,7 +18,6 @@ object server extends ScalaModule:
     thirdparty.clip,
     thirdparty.ustats,
     thirdparty.oslib,
-    thirdparty.requests,
     thirdparty.keg,
     thirdparty.playwright
   )
