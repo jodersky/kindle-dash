@@ -1,10 +1,16 @@
 package server
 
+/** URLs to render, set from the command line in `run` before the server starts. */
+object Config:
+  /** Grafana image-renderer URL, served as /dashboard.png */
+  @volatile var renderUrl: String = null
+  /** Grafana dashboard page, screenshotted with Playwright, served as /dashboard2.png */
+  @volatile var dashboardUrl: String = null
+
 @keg.get("/dashboard.png")
 def get(req: keg.Request) =
   try
-    val url = "http://grafana.home.internal/render/d/ja84p6m?orgId=1&width=758&height=1014&theme=light&kiosk&_dash.hideTimePicker"
-    val png = requests.get(url).bytes
+    val png = requests.get(Config.renderUrl).bytes
     keg.Response(
       toGrayscalePng(png),
       200,
@@ -98,11 +104,10 @@ object BrowserRenderer:
 @keg.get("/dashboard2.png")
 def getPlaywright(req: keg.Request) =
   try
-    val url = "http://grafana.home.internal/d/ja84p6m?orgId=1&theme=light&kiosk&_dash.hideTimePicker"
     // 583x780 CSS pixels at 1.3x ≈ 758x1014 device pixels, the same output
     // size as /dashboard.png, but with everything drawn 30% larger.
     val png = BrowserRenderer.screenshot(
-      url,
+      Config.dashboardUrl,
       width = 758,
       height = 1014,
       scale = 1,
@@ -124,8 +129,14 @@ def main(args: Array[String]): Unit = clip.main(this, args)
 
 @clip.command()
 def run(
+  @clip.arg("--render-url", help = "Grafana render URL (/render/d/...), served as /dashboard.png")
+  renderUrl: String,
+  @clip.arg("--dashboard-url", help = "Grafana dashboard URL (/d/...), rendered with a headless browser and served as /dashboard2.png")
+  dashboardUrl: String,
   port: Int = 8081
 ) =
+  Config.renderUrl = renderUrl
+  Config.dashboardUrl = dashboardUrl
   val server = keg.Server(
     routes,
     listeners = Seq(
