@@ -6,7 +6,7 @@ SLEEP_SCREEN_SECONDS=${SLEEP_SCREEN_SECONDS:-3600}
 WIFI_TEST_IP=${WIFI_TEST_IP:-1.1.1.1}
 WIFI_TIMEOUT=${WIFI_TIMEOUT:-30} # seconds
 # DASHBOARD_URL=${DASHBOARD_URL:-https://raw.githubusercontent.com/pascalw/kindle-dash/master/example/example.png}
-DASHBOARD_URL=${DASHBOARD_URL:-http://dash.crashbox.io/dash.png}
+DASHBOARD_URL=${DASHBOARD_URL:-http://kindle-dashboard.home.internal/dashboard.png}
 
 fatal() {
   eips "error: $1"

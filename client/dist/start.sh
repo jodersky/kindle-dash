@@ -7,10 +7,10 @@
 # the scriptlet's working directory is unspecified, so run from the script dir
 cd "$(dirname "$0")" || exit 1
 
-# Fully detach run.sh, since it runs forever and stops the framework that
+# Fully detach run, since it runs forever and stops the framework that
 # launched this scriptlet:
 # - `&` lets the scriptlet return immediately instead of blocking the launcher
-# - `setsid` puts run.sh in its own session/process group, so signals sent to
+# - `setsid` puts run in its own session/process group, so signals sent to
 #   the framework's process group (e.g. SIGTERM on stop) don't reach it
 # - `nohup` ignores the SIGHUP sent when the parent goes away
-setsid nohup sh ./run.sh >/dev/null 2>&1 &
+setsid nohup sh ./run >/dev/null 2>&1 &
