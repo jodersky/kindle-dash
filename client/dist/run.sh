@@ -1,0 +1,131 @@
+#!/bin/sh
+TIMEZONE=${TIMEZONE:-Europe/Zurich}
+REFRESH_SCHEDULE=${REFRESH_SCHEDULE:-"*/2 8-23 * * *"}
+FULL_REFRESH_INTERVAL=${FULL_REFRESH_INTERVAL:-4}
+SLEEP_SCREEN_SECONDS=${SLEEP_SCREEN_SECONDS:-3600}
+WIFI_TEST_IP=${WIFI_TEST_IP:-1.1.1.1}
+WIFI_TIMEOUT=${WIFI_TIMEOUT:-30} # seconds
+# DASHBOARD_URL=${DASHBOARD_URL:-https://raw.githubusercontent.com/pascalw/kindle-dash/master/example/example.png}
+DASHBOARD_URL=${DASHBOARD_URL:-http://dash.crashbox.io/dash.png}
+
+fatal() {
+  eips "error: $1"
+  exit 1
+}
+
+# make relative paths (libexec/, images) work regardless of the caller's cwd
+cd "$(dirname "$0")" || fatal "cannot cd into script dir"
+
+num_refresh=0
+full_refresh=1 # initial full refresh
+
+# Print wifi signal strength, or "-" if unavailable
+wifi_signal() {
+  q=$(lipc-get-prop com.lab126.wifid signalStrength 2>/dev/null)
+  echo "${q:--}"
+}
+
+# Display a status message and an optional image.
+# Usage: display MESSAGE [IMAGE]
+#
+# If no image is given, or the given file does not exist, only the status
+# line is redrawn on top of whatever is currently on screen.
+display() {
+  full=""
+  if [ "$full_refresh" -eq 1 ] || [ "$num_refresh" -ge "$FULL_REFRESH_INTERVAL" ]; then
+    full="-f"
+    num_refresh=0
+  else
+    num_refresh=$((num_refresh + 1))
+  fi
+  full_refresh=0
+
+  bat=$(gasgauge-info -c)
+  bat=${bat%\%} # eips cannot print '%'
+
+  # pad so that a shorter message fully overwrites a previous, longer one
+  status=$(printf '%-40s' "$(date +%R) bat:$bat wifi:$(wifi_signal) $1")
+
+  if [ -f "$2" ]; then # also false if no image was given
+    # The image replaces the whole framebuffer (including any old status
+    # line), so the full refresh, if any, is done here. The status line is
+    # then drawn on top with a cheap partial refresh.
+    # shellcheck disable=SC2086
+    eips $full -g "$2" -y 10
+    eips "$status"
+  else
+    # shellcheck disable=SC2086
+    eips "$status" $full
+  fi
+}
+
+# Wait until the test IP is reachable; returns non-zero after WIFI_TIMEOUT seconds
+wait_for_wifi() {
+  i=0
+  until ping -c 1 -W 1 "$WIFI_TEST_IP" >/dev/null 2>&1; do
+    i=$((i + 1))
+    [ "$i" -ge "$WIFI_TIMEOUT" ] && return 1
+    sleep 1
+  done
+}
+
+init() {
+  echo "Starting dashboard"
+  echo "  TIMEZONE=$TIMEZONE"
+  echo "  REFRESH_SCHEDULE=$REFRESH_SCHEDULE"
+  echo "  FULL_REFRESH_INTERVAL=$FULL_REFRESH_INTERVAL"
+  echo "  SLEEP_SCREEN_SECONDS=$SLEEP_SCREEN_SECONDS"
+  echo "  WIFI_TEST_IP=$WIFI_TEST_IP"
+  echo "  WIFI_TIMEOUT=$WIFI_TIMEOUT"
+  echo "  DASHBOARD_URL=$DASHBOARD_URL"
+
+  # Stop the built-in UI (you'll need to reboot for UI to restart). On FW 5.x
+  # the framework is managed by upstart as part of lab126_gui, and killing it
+  # via /etc/init.d/framework just gets it respawned, so stop the whole group.
+  initctl stop lab126_gui >/dev/null 2>&1
+
+  # stop browser if open
+  # initctl stop webreader >/dev/null 2>&1
+
+  # we'll be sleeping mostly, but even when awake it's ok to save battery
+  echo powersave >/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+  # prevent screen-saver from showing during sleep
+  lipc-set-prop com.lab126.powerd preventScreenSaver 1
+
+  # turn off backlight
+  lipc-set-prop com.lab126.powerd flIntensity 0
+}
+
+main_loop() {
+  next_wakeup_secs=$(./libexec/next-wakeup --schedule="$REFRESH_SCHEDULE" --timezone="$TIMEZONE") ||
+    fatal "next-wakeup failed"
+
+  if [ "$next_wakeup_secs" -gt "$SLEEP_SCREEN_SECONDS" ]; then
+    full_refresh=1
+    display "sleeping" sleeping.png
+    full_refresh=1
+  elif ! wait_for_wifi; then
+    full_refresh=1
+    display "wifi error" wifi-error.png
+    full_refresh=1
+  elif ./libexec/xh -d -q -o /dev/shm/dashboard.png get "$DASHBOARD_URL"; then
+    display "" /dev/shm/dashboard.png
+  else
+    full_refresh=1
+    display "fetch error" fetch-error.png
+    full_refresh=1
+  fi
+
+  # take a bit of time before going to sleep, so this process can be aborted
+  sleep 10
+
+  # echo "$(date) suspending, next wakeup in ${next_wakeup_secs}s"
+  echo 0 >/sys/class/rtc/rtc1/wakealarm # clear any pending alarm, otherwise setting a new one fails
+  echo "+$next_wakeup_secs" >/sys/class/rtc/rtc1/wakealarm
+  echo mem >/sys/power/state # suspend
+}
+
+init
+while true; do
+  main_loop
+done

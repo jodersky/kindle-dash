@@ -1,0 +1,86 @@
+//| mill-version: 1.3.1
+//| mill-jvm-version: 25
+
+import mill.*, scalalib.*, scalanativelib.*, scalafmt.*, publish.*
+import build.thirdparty
+
+val scala3 = "3.9.0"
+
+object server extends ScalaModule:
+  def scalaVersion = scala3
+  def scalacOptions = Seq("-deprecation", "-feature", "-unchecked", "-encoding", "utf8")
+
+  object test extends ScalaTests:
+    def testFramework = "utest.runner.Framework"
+    def mvnDeps = Seq(thirdparty.utest)
+
+  def mvnDeps = Seq(
+    thirdparty.clip,
+    thirdparty.ustats,
+    thirdparty.oslib,
+    thirdparty.requests,
+    thirdparty.keg,
+    thirdparty.playwright
+  )
+
+  /** Container image tag produced by `image` */
+  def imageTag = "r.home.internal/kindle-dash-server:latest"
+
+  /** Build a container image with podman.
+    *
+    * The image is not distroless, because Chromium (used via Playwright) needs
+    * a set of system libraries and fonts. It contains a JRE, the Playwright
+    * driver (unpacked at build time, so nothing is extracted at runtime) and
+    * Chromium's headless shell only. It runs as a non-root user, and the only
+    * place it writes to is /tmp, so it can run with a read-only root
+    * filesystem.
+    */
+  def image() = Task.Command {
+    val ctx = Task.dest
+    os.remove.all(ctx)
+    os.makeDir.all(ctx / "lib")
+
+    val deps = resolvedRunMvnDeps().map(_.path)
+    for dep <- deps do os.copy(dep, ctx / "lib" / dep.last)
+    os.copy(jar().path, ctx / "app.jar")
+
+    // Unpack the Playwright driver: the Linux x64 node binary comes from
+    // driver-bundle, the JS package (shared by all platforms) from driver.
+    def depJar(prefix: String) = deps
+      .find(_.last.startsWith(prefix))
+      .getOrElse(sys.error(s"playwright $prefix jar not found on classpath"))
+    val unzipped = ctx / "unzipped"
+    os.unzip(depJar("driver-bundle-"), unzipped, includePatterns = Seq("driver/linux/.*".r))
+    os.unzip(depJar("driver-1"), unzipped, includePatterns = Seq("driver/package/.*".r))
+    os.move(unzipped / "driver" / "linux", ctx / "playwright-driver")
+    os.move(unzipped / "driver" / "package", ctx / "playwright-driver" / "package")
+    os.remove.all(unzipped)
+    os.perms.set(ctx / "playwright-driver" / "node", "rwxr-xr-x")
+
+    os.write(
+      ctx / "Containerfile",
+      s"""FROM docker.io/library/eclipse-temurin:25-jre-noble
+         |
+         |ENV PLAYWRIGHT_DRIVER_DIR=/opt/playwright-driver \\
+         |    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers \\
+         |    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \\
+         |    HOME=/tmp
+         |
+         |COPY playwright-driver /opt/playwright-driver
+         |RUN /opt/playwright-driver/node /opt/playwright-driver/package/cli.js \\
+         |      install --with-deps --only-shell chromium && \\
+         |    rm -rf /var/lib/apt/lists/* /tmp/*
+         |
+         |COPY lib /app/lib
+         |COPY app.jar /app/app.jar
+         |
+         |USER 10001:10001
+         |EXPOSE 8081
+         |ENTRYPOINT ["java", "-XX:-UsePerfData", "--enable-native-access=ALL-UNNAMED", \\
+         |  "-cp", "/app/app.jar:/app/lib/*", "${finalMainClass()}"]
+         |""".stripMargin
+    )
+    os.proc("podman", "build", "--platform", "linux/amd64", "-t", imageTag, ctx)
+      .call(cwd = ctx, stdout = os.Inherit, stderr = os.Inherit)
+    imageTag
+  }
