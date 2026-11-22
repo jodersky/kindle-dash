@@ -4,6 +4,11 @@ Turns a jailbroken Kindle into a dashboard. The server renders a Grafana
 dashboard as a grayscale PNG; the Kindle periodically fetches and displays it,
 sleeping in between to save battery.
 
+<p align="center">
+  <img src="client/example.png" alt="Example dashboard" height="400">
+  <img src="client/picture.jpg" alt="Dashboard running on a Kindle" height="400">
+</p>
+
 ## Client
 
 Shell scripts that run on the Kindle. Adapted from
