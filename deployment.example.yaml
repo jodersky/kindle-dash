@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kindle-dashboard
+  namespace: monitoring
+spec:
+  template:
+    metadata:
+      labels:
+        app: kindle-dashboard
+    spec:
+      securityContext:
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 10001
+        runAsNonRoot: true
+        sysctls:
+        - name: net.ipv4.ip_unprivileged_port_start
+          value: '0'
+      volumes:
+      - emptyDir:
+          sizeLimit: 256Mi
+        name: tmp
+      containers:
+      - image: r.home.internal/kindle-dash-server:latest
+        securityContext:
+          capabilities:
+            drop:
+            - ALL
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        ports:
+        - name: http
+          containerPort: 8081
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+        args:
+        - http://grafana.home.internal/d/ja84p6m?orgId=1&theme=light&kiosk&_dash.hideTimePicker
+        name: kindle-dashboard
+        readinessProbe:
+          tcpSocket:
+            port: 8081
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kindle-dashboard
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kindle-dashboard
+  namespace: monitoring
+spec:
+  ipFamilyPolicy: PreferDualStack
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8081
+  type: LoadBalancer
+  ipFamilies:
+  - IPv6
+  - IPv4
+  selector:
+    app: kindle-dashboard

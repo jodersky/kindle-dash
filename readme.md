@@ -1,8 +1,8 @@
 # kindle-dash
 
-Turns a jailbroken Kindle into a wall-mounted dashboard. The server renders a
-Grafana dashboard as a grayscale PNG; the Kindle periodically fetches and
-displays it, sleeping in between to save battery.
+Turns a jailbroken Kindle into a dashboard. The server renders a Grafana
+dashboard as a grayscale PNG; the Kindle periodically fetches and displays it,
+sleeping in between to save battery.
 
 ## Client
 
@@ -65,5 +65,5 @@ After upgrading Grafana, check the rendered image and update the selectors in
 
 `./mill server.image` builds a container image with podman. It runs as a
 non-root user and only needs `/tmp` to be writable, so it works with a
-read-only root filesystem. It's deployed in the homelab cluster as
-`kindle-dashboard` (see `homelab/infra/envs/home/monitoring/kindle-dashboard.pkl`).
+read-only root filesystem. See `deployment.example.yaml` for an example
+Kubernetes deployment.
